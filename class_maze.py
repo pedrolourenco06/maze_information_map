@@ -58,7 +58,7 @@ class Maze(gym.Env):
         # Inicializa pygame se necessário
         if self.render_env:
             pygame.init()
-            self.screen_size = (SCREEN_SIZE, SCREEN_SIZE)
+            self.screen_size = (2*SCREEN_SIZE, SCREEN_SIZE)
             self.screen = pygame.display.set_mode(self.screen_size)
             self.clock = pygame.time.Clock()
             pygame.display.set_caption("Labirinto")
@@ -118,6 +118,10 @@ class Maze(gym.Env):
         # trajetoria
         self.traj = [self.p]
 
+        self.known_map = -np.ones_like(self.mapa, dtype=np.int8)
+
+        self.update_known_map(radius=2)
+
         return self.get_state(self.p)
 
     ########################################
@@ -154,9 +158,12 @@ class Maze(gym.Env):
             
         # trajetoria
         self.traj.append(self.p)
+
+        # atualiza mapa conhecido
+        self.update_known_map(radius=2)
          
         # reward
-        reward = self.getReward()
+        reward = self.getReward(action)
         
         # estado terminal?
         done = self.terminal()
@@ -166,7 +173,7 @@ class Maze(gym.Env):
 
     ########################################
     # função de reforço
-    def getReward(self):
+    def getReward(self, action):
         
         # reward
         reward = 0.0
@@ -178,9 +185,19 @@ class Maze(gym.Env):
         # chegou no alvo
         if np.linalg.norm(self.p - self.alvo) <= self.res:
             reward += MAX_STEPS
-            
+
+        # timeout    
         if self.steps > MAX_STEPS:
             reward -= MAX_STEPS/5.0
+
+        if len(self.traj) > 5 and np.linalg.norm(np.array(self.traj[-1]) - np.array(self.traj[-5])) < self.res:
+            reward -= 2.0
+
+        # recompensa por explorar
+        reward += 2.0 * self.info_gain
+
+        if action == 0:
+            reward -= 1.0
             
         return reward
     
@@ -271,6 +288,42 @@ class Maze(gym.Env):
         x = int((pos[0] - self.xlim[0]) / (self.xlim[1] - self.xlim[0]) * self.screen_size[0])
         y = int(self.screen_size[1] - (pos[1] - self.ylim[0]) / (self.ylim[1] - self.ylim[0]) * self.screen_size[1])
         return (x, y)
+    
+    def workd_to_screen_known(self, pos):
+        x = int((pos[0] - self.xlim[0]) / (self.xlim[1] - self.xlim[0]) * SCREEN_SIZE) + SCREEN_SIZE
+        y = int(SCREEN_SIZE - (pos[1] - self.ylim[0]) / (self.ylim[1] - self.ylim[0]) * SCREEN_SIZE)
+        return (x, y)
+    
+    def get_robot_cell(self):
+        px, py = self.mts2px(self.p)
+        return int(py), int(px)
+    
+    def update_known_map(self, radius=2):
+        
+        lin, col = self.get_robot_cell()
+
+        alvo_px, alvo_py = self.mts2px(self.alvo)
+        alvo_lin = max(0, min(int(alvo_py), self.nrow - 1))
+        alvo_col = max(0, min(int(alvo_px), self.ncol - 1))
+
+        prev_known = np.sum(self.known_map != -1)
+
+        for i in range(lin - radius, lin + radius + 1):
+            for j in range(col - radius, col + radius  +1):
+                if 0 <= i < self.nrow and 0 <= j < self.ncol: 
+
+                    if i == alvo_lin and j == alvo_col:
+                        self.known_map[i, j] = 2    # alvo
+
+                    elif self.mapa[i, j] < 127:
+                        self.known_map[i, j] = 1    # obstaculo
+
+                    else:
+                        self.known_map[i, j] = 0    # objetivo
+
+        curr_known = np.sum(self.known_map != -1)
+
+        self.info_gain = curr_known - prev_known
         
     ########################################
     # desenha a imagem distorcida em metros
@@ -287,6 +340,10 @@ class Maze(gym.Env):
         
         # Desenha o mapa
         self.screen.blit(self.map_surface, (0, 0))
+
+        # desenha o mapa conhecido
+        known_surface = self.known_map_to_surface()
+        self.screen.blit(known_surface, (SCREEN_SIZE, 0))
         
         # Desenha o alvo (um X)
         alvo_pos = self.world_to_screen(self.alvo)
@@ -298,6 +355,18 @@ class Maze(gym.Env):
             pygame.draw.rect(self.screen, (155, 0, 200), (*self.world_to_screen(p), 0.5*robot_size, 0.5*robot_size))
         # Desenha o robô
         pygame.draw.rect(self.screen, (0, 0, 255), (*self.world_to_screen(self.p), robot_size, robot_size))
+
+        # alvo no mapa conhecido
+        alvo_pos_known = self.workd_to_screen_known(self.alvo)
+        pygame.draw.line(self.screen, (0, 200, 0),
+                        (alvo_pos_known[0] - target_size, alvo_pos_known[1] - target_size),
+                        (alvo_pos_known[0] + target_size, alvo_pos_known[1] + target_size), 3)
+        pygame.draw.line(self.screen, (0, 200, 0),
+                 (alvo_pos_known[0] - target_size, alvo_pos_known[1] + target_size),
+                 (alvo_pos_known[0] + target_size, alvo_pos_known[1] - target_size), 3)
+
+        # robo no mapa conhecido
+        pygame.draw.rect(self.screen, (0, 0, 255), (*self.workd_to_screen_known(self.p), robot_size, robot_size))
         
         # Desenha o campo vetorial
         m = self.num_states[0]
@@ -319,6 +388,22 @@ class Maze(gym.Env):
         # Atualiza a tela
         pygame.display.flip()
         self.clock.tick(30)  # FPS
+
+    def known_map_to_surface(self):
+        img = np.zeros((self.ncol, self.ncol, 3), dtype=np.uint8)
+
+        img[self.known_map == -1] = [60, 60, 60]
+
+        img[self.known_map == 0] = [255, 255, 255]
+
+        img[self.known_map == 1] = [0, 0, 0]
+
+        img[self.known_map == 2] = [0, 200, 0]
+
+        surface = pygame.surfarray.make_surface(np.transpose(img, (1, 0, 2)))
+        surface = pygame.transform.scale(surface, (SCREEN_SIZE, SCREEN_SIZE))
+
+        return surface
      
     ########################################
     def draw_arrow(self, surface, color, start, end, width=2, head_size=3):
