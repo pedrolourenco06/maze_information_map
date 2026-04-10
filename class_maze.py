@@ -118,6 +118,10 @@ class Maze(gym.Env):
         # trajetoria
         self.traj = [self.p]
 
+        self.known_map = -np.ones_like(self.mapa, dtype=np.int8)
+
+        self.update_known_map(layers=2)
+
         return self.get_state(self.p)
 
     ########################################
@@ -154,9 +158,12 @@ class Maze(gym.Env):
             
         # trajetoria
         self.traj.append(self.p)
+
+        # atualiza mapa conhecido
+        self.update_known_map(layers=2)
          
         # reward
-        reward = self.getReward()
+        reward = self.getReward(action)
         
         # estado terminal?
         done = self.terminal()
@@ -166,7 +173,7 @@ class Maze(gym.Env):
 
     ########################################
     # função de reforço
-    def getReward(self):
+    def getReward(self, action):
         
         # reward
         reward = 0.0
@@ -178,9 +185,19 @@ class Maze(gym.Env):
         # chegou no alvo
         if np.linalg.norm(self.p - self.alvo) <= self.res:
             reward += MAX_STEPS
-            
+
+        # timeout    
         if self.steps > MAX_STEPS:
             reward -= MAX_STEPS/5.0
+
+        if len(self.traj) > 5 and np.linalg.norm(np.array(self.traj[-1]) - np.array(self.traj[-5])) < self.res:
+            reward -= 2.0
+
+        # recompensa por explorar
+        reward += 2.0 * self.info_gain
+
+        if action == 0:
+            reward -= 1.0
             
         return reward
     
@@ -271,54 +288,249 @@ class Maze(gym.Env):
         x = int((pos[0] - self.xlim[0]) / (self.xlim[1] - self.xlim[0]) * self.screen_size[0])
         y = int(self.screen_size[1] - (pos[1] - self.ylim[0]) / (self.ylim[1] - self.ylim[0]) * self.screen_size[1])
         return (x, y)
+    
+    # def world_to_screen_known(self, pos):
+    #     x = int((pos[0] - self.xlim[0]) / (self.xlim[1] - self.xlim[0]) * SCREEN_SIZE) + SCREEN_SIZE
+    #     y = int(SCREEN_SIZE - (pos[1] - self.ylim[0]) / (self.ylim[1] - self.ylim[0]) * SCREEN_SIZE)
+    #     return (x, y)
+    
+    def get_robot_cell(self):
+        px, py = self.mts2px(self.p)
+        return int(py), int(px)
+    
+    def update_known_map(self, layers=2):
+        
+        lin, col = self.get_robot_cell()
+
+        prev_known = np.sum(self.known_map != -1)
+
+        radius_m = layers * self.res
+
+        radius_px_x = int(np.ceil(radius_m * self.mx))
+        radius_px_y = int(np.ceil(radius_m * self.my))
+
+        alvo_px, alvo_py = self.mts2px(self.alvo)
+        alvo_lin = max(0, min(int(alvo_py), self.nrow - 1))
+        alvo_col = max(0, min(int(alvo_px), self.ncol - 1))
+
+        
+
+        for i in range(lin - radius_px_y, lin + radius_px_y + 1):
+            for j in range(col - radius_px_x, col + radius_px_x  +1):
+                if 0 <= i < self.nrow and 0 <= j < self.ncol: 
+
+                    if i == alvo_lin and j == alvo_col:
+                        self.known_map[i, j] = 2    # alvo
+
+                    elif self.mapa[i, j] < 127:
+                        self.known_map[i, j] = 1    # obstaculo
+
+                    else:
+                        self.known_map[i, j] = 0    # objetivo
+
+        curr_known = np.sum(self.known_map != -1)
+
+        self.info_gain = curr_known - prev_known
         
     ########################################
     # desenha a imagem distorcida em metros
-    def render(self, Q, arrow_size=0.5, target_size=5, robot_size=10):
+    # def render(self, Q, arrow_size=0.5, target_size=5, robot_size=10):
         
+    #     if not self.render_env:
+    #         return
+        
+    #     # Trata eventos para manter a janela viva
+    #     for event in pygame.event.get():
+    #         if event.type == pygame.QUIT:
+    #             pygame.quit()
+    #             sys.exit()        
+        
+    #     # Desenha o mapa
+    #     self.screen.blit(self.map_surface, (0, 0))
+
+    #     # desenha o mapa conhecido
+    #     known_surface = self.known_map_to_surface()
+    #     self.screen.blit(known_surface, (SCREEN_SIZE, 0))
+        
+    #     # Desenha o alvo (um X)
+    #     alvo_pos = self.world_to_screen(self.alvo)
+    #     pygame.draw.line(self.screen, (0, 200, 0), (alvo_pos[0] - target_size, alvo_pos[1] - target_size), (alvo_pos[0] + target_size, alvo_pos[1] + target_size), 5)
+    #     pygame.draw.line(self.screen, (0, 200, 0), (alvo_pos[0] - target_size, alvo_pos[1] + target_size), (alvo_pos[0] + target_size, alvo_pos[1] - target_size), 5)
+        
+    #     # Desenha trajetoria do robo
+    #     for p in self.traj:
+    #         pygame.draw.rect(self.screen, (155, 0, 200), (*self.world_to_screen(p), 0.5*robot_size, 0.5*robot_size))
+    #     # Desenha o robô
+    #     pygame.draw.rect(self.screen, (0, 0, 255), (*self.world_to_screen(self.p), robot_size, robot_size))
+
+    #     # alvo no mapa conhecido
+    #     alvo_pos_known = self.workd_to_screen_known(self.alvo)
+    #     pygame.draw.line(self.screen, (0, 200, 0),
+    #                     (alvo_pos_known[0] - target_size, alvo_pos_known[1] - target_size),
+    #                     (alvo_pos_known[0] + target_size, alvo_pos_known[1] + target_size), 3)
+    #     pygame.draw.line(self.screen, (0, 200, 0),
+    #              (alvo_pos_known[0] - target_size, alvo_pos_known[1] + target_size),
+    #              (alvo_pos_known[0] + target_size, alvo_pos_known[1] - target_size), 3)
+
+    #     # robo no mapa conhecido
+    #     pygame.draw.rect(self.screen, (0, 0, 255), (*self.workd_to_screen_known(self.p), robot_size, robot_size))
+        
+    #     # Desenha o campo vetorial
+    #     m = self.num_states[0]
+    #     xm = np.linspace(self.xlim[0], self.xlim[1], m)
+    #     ym = np.linspace(self.ylim[0], self.ylim[1], m)
+    #     for x in xm:
+    #         for y in ym:
+    #             # verifica colisao
+    #             if self.collision((x, y)):
+    #                 continue
+    #             # desenha a seta
+    #             S = self.get_state(np.array([x, y]))
+    #             u = arrow_size*self.actionU(Q[S, :].argmax())
+    #             start = self.world_to_screen([x, y])
+    #             end = self.world_to_screen([x + u[0], y + u[1]])
+    #             if np.linalg.norm(u) > 0:
+    #                 self.draw_arrow(self.screen, (0, 100, 150), start, end)
+
+    #     # Atualiza a tela
+    #     pygame.display.flip()
+    #     self.clock.tick(30)  # FPS
+
+    def render(self, Q, arrow_size=0.5, target_size=5, robot_size=10):
+
         if not self.render_env:
             return
-        
-        # Trata eventos para manter a janela viva
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
-                sys.exit()        
-        
-        # Desenha o mapa
+                return
+
+        self.screen.fill((180, 180, 180))
+
+        # =========================
+        # 1) MAPA REAL (ESQUERDA)
+        # =========================
         self.screen.blit(self.map_surface, (0, 0))
-        
-        # Desenha o alvo (um X)
+
+        # alvo no mapa real
         alvo_pos = self.world_to_screen(self.alvo)
-        pygame.draw.line(self.screen, (0, 200, 0), (alvo_pos[0] - target_size, alvo_pos[1] - target_size), (alvo_pos[0] + target_size, alvo_pos[1] + target_size), 5)
-        pygame.draw.line(self.screen, (0, 200, 0), (alvo_pos[0] - target_size, alvo_pos[1] + target_size), (alvo_pos[0] + target_size, alvo_pos[1] - target_size), 5)
-        
-        # Desenha trajetoria do robo
+        pygame.draw.line(self.screen, (0, 200, 0),
+                        (alvo_pos[0] - target_size, alvo_pos[1] - target_size),
+                        (alvo_pos[0] + target_size, alvo_pos[1] + target_size), 3)
+        pygame.draw.line(self.screen, (0, 200, 0),
+                        (alvo_pos[0] - target_size, alvo_pos[1] + target_size),
+                        (alvo_pos[0] + target_size, alvo_pos[1] - target_size), 3)
+
+        # trajetória no mapa real
         for p in self.traj:
-            pygame.draw.rect(self.screen, (155, 0, 200), (*self.world_to_screen(p), 0.5*robot_size, 0.5*robot_size))
-        # Desenha o robô
-        pygame.draw.rect(self.screen, (0, 0, 255), (*self.world_to_screen(self.p), robot_size, robot_size))
-        
-        # Desenha o campo vetorial
+            px, py = self.world_to_screen(p)
+            pygame.draw.rect(self.screen, (155, 0, 200), (px, py, 4, 4))
+
+        # robô no mapa real
+        rx, ry = self.world_to_screen(self.p)
+        pygame.draw.rect(self.screen, (0, 0, 255), (rx, ry, robot_size, robot_size))
+
+        # setas APENAS no mapa real
         m = self.num_states[0]
         xm = np.linspace(self.xlim[0], self.xlim[1], m)
         ym = np.linspace(self.ylim[0], self.ylim[1], m)
+
         for x in xm:
             for y in ym:
-                # verifica colisao
                 if self.collision((x, y)):
                     continue
-                # desenha a seta
+
                 S = self.get_state(np.array([x, y]))
-                u = arrow_size*self.actionU(Q[S, :].argmax())
+                u = arrow_size * self.actionU(Q[S, :].argmax())
                 start = self.world_to_screen([x, y])
                 end = self.world_to_screen([x + u[0], y + u[1]])
+
                 if np.linalg.norm(u) > 0:
                     self.draw_arrow(self.screen, (0, 100, 150), start, end)
 
-        # Atualiza a tela
+        # =========================
+        # 2) MAPA CONHECIDO (DIREITA)
+        # =========================
+        # known_surface = self.known_map_to_surface()
+        # self.screen.blit(known_surface, (SCREEN_SIZE, 0))
+
+        # # alvo no mapa conhecido
+        # alvo_pos_k = self.world_to_screen_known(self.alvo)
+        # pygame.draw.line(self.screen, (0, 200, 0),
+        #                 (alvo_pos_k[0] - target_size, alvo_pos_k[1] - target_size),
+        #                 (alvo_pos_k[0] + target_size, alvo_pos_k[1] + target_size), 3)
+        # pygame.draw.line(self.screen, (0, 200, 0),
+        #                 (alvo_pos_k[0] - target_size, alvo_pos_k[1] + target_size),
+        #                 (alvo_pos_k[0] + target_size, alvo_pos_k[1] - target_size), 3)
+
+        # # trajetória no mapa conhecido
+        # for p in self.traj:
+        #     px, py = self.world_to_screen_known(p)
+        #     pygame.draw.rect(self.screen, (155, 0, 200), (px, py, 4, 4))
+
+        # # robô no mapa conhecido
+        # rx, ry = self.world_to_screen_known(self.p)
+        # pygame.draw.rect(self.screen, (0, 0, 255), (rx, ry, robot_size, robot_size))
+
         pygame.display.flip()
-        self.clock.tick(30)  # FPS
+        self.clock.tick(30)
+
+    # def known_map_to_surface(self):
+    #     img = np.zeros((self.ncol, self.ncol, 3), dtype=np.uint8)
+
+    #     img[self.known_map == -1] = [60, 60, 60]
+
+    #     img[self.known_map == 0] = [255, 255, 255]
+
+    #     img[self.known_map == 1] = [0, 0, 0]
+
+    #     img[self.known_map == 2] = [0, 200, 0]
+
+    #     surface = pygame.surfarray.make_surface(np.transpose(img, (1, 0, 2)))
+    #     surface = pygame.transform.scale(surface, (SCREEN_SIZE, SCREEN_SIZE))
+
+    #     return surface
+
+    def render_known_map(self):
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        img = np.copy(self.known_map)
+
+        vis = np.copy(img)
+
+        for p in self.traj:
+            px, py = self.mts2px(p)
+            lin = max(0, min(int(py), self.nrow - 1))
+            col = max(0, min(int(px), self.ncol - 1))
+            vis[lin, col] = 3
+
+        px, py = self.mts2px(self.p)
+        lin = max(0, min(int(py), self.nrow - 1))
+        col = max(0, min(int(px), self.ncol - 1))
+        vis[lin, col] = 4
+
+        px, py = self.mts2px(self.alvo)
+        lin = max(0, min(int(py), self.nrow - 1))
+        col = max(0, min(int(px), self.ncol - 1))
+        vis[lin, col] = 2
+
+        cmap_data = np.zeros((vis.shape[0], vis.shape[1], 3), dtype=np.uint8)
+        cmap_data[vis == -1] = [60, 60, 60]       # desconhecido
+        cmap_data[vis == 0]  = [255, 255, 255]    # livre
+        cmap_data[vis == 1]  = [0, 0, 0]          # obstáculo
+        cmap_data[vis == 2]  = [0, 255, 0]        # alvo            cmap_data[vis == 3]  = [180, 0, 255]      # trajetória
+        cmap_data[vis == 4]  = [0, 0, 255]    
+
+        plt.figure(2)
+        plt.clf()
+        plt.imshow(cmap_data)
+        plt.title("Mapa de informação")
+        plt.axis("off")
+        plt.pause(0.001)
+
+
      
     ########################################
     def draw_arrow(self, surface, color, start, end, width=2, head_size=3):

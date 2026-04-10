@@ -179,7 +179,7 @@ class TDlearning(TDlearning):
 # %%
 class TDlearning(TDlearning):
     ##########################################
-    def runEpisode(self, render_every=100):
+    def runEpisode(self, render_every=50):
 
         # novo episodio
         self.episode += 1
@@ -217,6 +217,7 @@ class TDlearning(TDlearning):
             # renderiza o ambiente
             if (self.episode-1)%render_every == 0:
                 self.env.render(self.Q)
+                self.env.render_known_map()
 
             # chegou a um estado terminal?
             if done: break
@@ -250,7 +251,7 @@ if __name__ == '__main__':
                   'gamma'     : 0.99,
                   'eps'       : 1.0e-1,
                   'alpha'     : 0.5,
-                  'method'    : 'Q-learning', #'SARSA' ou 'Q-learning'
+                  'method'    : 'SARSA', #'SARSA' ou 'Q-learning'
                   'render'    : True,
                   'save_Q'    : True,
                   'load_Q'    : False,
