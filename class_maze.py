@@ -194,7 +194,7 @@ class Maze(gym.Env):
             reward -= 2.0
 
         # recompensa por explorar
-        reward += 2.0 * self.info_gain
+        reward += 2.0 * (self.info_gain/1000)
 
         if action == 0:
             reward -= 1.0
