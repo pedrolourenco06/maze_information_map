@@ -53,6 +53,8 @@ class Maze(gym.Env):
         pygame.init()
         pygame.display.set_mode((1, 1))  # Inicializa com uma janelinha mínima
         self.init2D(img)
+        self.known_map = -np.ones_like(self.mapa, dtype=np.int8)
+        self.info_gain = 0
         pygame.quit()
         
         # Inicializa pygame se necessário
@@ -118,7 +120,6 @@ class Maze(gym.Env):
         # trajetoria
         self.traj = [self.p]
 
-        self.known_map = -np.ones_like(self.mapa, dtype=np.int8)
 
         self.update_known_map(layers=2)
 
@@ -560,6 +561,15 @@ class Maze(gym.Env):
 
         pygame.draw.line(surface, color, end, left, width)
         pygame.draw.line(surface, color, end, right, width)
+
+    def save_known_map(self, filename="known_map.npy"):
+        np.save(filename, self.known_map)
+
+    def load_known_map(self, filename="known_map.npy"):
+        try:
+            self.known_map = np.load(filename)
+        except FileNotFoundError:
+            self.known_map = -np.ones_like(self.mapa, dtype=np.int8)
 
     ########################################
     def __del__(self):

@@ -48,6 +48,7 @@ class TDlearning(object):
 
         # cria o ambiente
         self.env = cm.Maze(render=parameters['render'])
+        self.env.load_known_map()
 
         # tamanho dos espacos de estados e acoes
         self.num_states = np.prod(np.array(self.env.num_states))
@@ -204,6 +205,7 @@ class TDlearning(TDlearning):
         # salva a tabela Q
         if self.parameters['save_Q']:
             self.save()
+            mc.env.save_known_map()
 
         success = self.env.reached_goal()
         return np.sum(np.array(rewards)), success
