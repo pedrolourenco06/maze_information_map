@@ -1,3 +1,5 @@
-.venv/
+venv_labirinto/
 __pycache__/
 *.pyc
+results/
+*.npy
