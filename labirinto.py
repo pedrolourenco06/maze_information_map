@@ -60,9 +60,7 @@ class TDlearning(object):
 
         # log file (nome depende do metodo)
         self.logfile = parameters['q-file']
-        if self.method == 'SARSA':
-            self.logfile = 'sarsa_' + self.logfile
-        elif self.method == 'Q-learning':
+        if self.method == 'Q-learning':
             self.logfile = 'qlearning_' + self.logfile
         else: print("Não salvou...")
 
@@ -135,22 +133,8 @@ class TDlearning(TDlearning):
 # - $S \gets S'$
 # - $A \gets A'$
 
-# %%
-class TDlearning(TDlearning):
+
     ##########################################
-    def sarsa(self, S, A):
-
-        # passo de interacao com o ambiente
-        [Sl, R, done, _] = self.env.step(A)
-        
-        # escolhe A' a partir de S'
-        Al = self.policy(Sl)
-        
-        # update de Q(s,a)
-        self.Q[S, A] = self.Q[S, A] + self.alpha*(R + self.gamma*self.Q[Sl, Al] - self.Q[S, A])
-        
-        return Sl, Al, R, done
-
 # %% [markdown]
 # Método do *Q*-learning:
 # - escolha $A$ a partir de $S$ usando $Q$ ($\varepsilon$-greedy, por exemplo)
@@ -197,13 +181,8 @@ class TDlearning(TDlearning):
         rewards = []
 
         while True:
-            # SARSA
-            if self.method == 'SARSA':
-                Sl, Al, R, done = self.sarsa(S, A)
-                # proxima ação
-                A = Al
             # Q-learning
-            elif self.method == 'Q-learning':
+            if self.method == 'Q-learning':
                 Sl, R, done = self.qlearning(S)
             else:
                 print('Método errado.')
@@ -226,7 +205,9 @@ class TDlearning(TDlearning):
         if self.parameters['save_Q']:
             self.save()
 
-        return np.sum(np.array(rewards))
+        success = self.env.reached_goal()
+        return np.sum(np.array(rewards)), success
+
 
 # %% [markdown]
 # Código principal:
@@ -247,11 +228,11 @@ if __name__ == '__main__':
     plt.ion()
 
     # parametros
-    parameters = {'episodes'  : 4000,
+    parameters = {'episodes'  : 2000,
                   'gamma'     : 0.99,
                   'eps'       : 1.0e-1,
                   'alpha'     : 0.5,
-                  'method'    : 'SARSA', #'SARSA' ou 'Q-learning'
+                  'method'    : 'Q-learning', #'SARSA' ou 'Q-learning'
                   'render'    : True,
                   'save_Q'    : True,
                   'load_Q'    : False,
@@ -263,15 +244,21 @@ if __name__ == '__main__':
     # historico de recompensas
     rewards = []
     avg_rewards = []
+
+    # taxa de sucesso
+    successes = []
+    success_rate = []
     
     while mc.episode <= parameters['episodes']:
         # roda um episodio
-        total_reward = mc.runEpisode()
+        total_reward, success = mc.runEpisode()
         
         # rewards
         rewards.append(total_reward)
         # reward medio
         avg_rewards.append(np.mean(rewards[-50:]))
+        successes.append(1 if success else 0)
+        success_rate.append(np.mean(successes[-50:]))
         
         # plot rewards
         plt.figure(1)
@@ -285,5 +272,25 @@ if __name__ == '__main__':
         plt.ylabel('Recompensa')
         plt.show()
         plt.pause(.1)
+
+    plt.figure(3)
+    plt.clf()
+    plt.plot(success_rate, 'g', linewidth=2)
+    plt.title('Taxa de sucesso por episódios')
+    plt.xlabel('Episódios')
+    plt.ylabel('Taxa de sucesso (média móvel 50 episódios)')
+    plt.ylim(-0.05, 1.05)
+    plt.savefig("results/success_rate.png", dpi=300, bbox_inches='tight')
+
+    plt.figure(1)
+    plt.clf()
+    plt.plot(avg_rewards, 'b', linewidth=2)
+    plt.title('Recompensa por episódio')
+    plt.xlabel('Episódios')
+    plt.ylabel('Recompensa')
+    plt.savefig("results/reward_final.png", dpi=300, bbox_inches='tight')
+
+    final_success_rate = np.mean(successes[-100:]) * 100
+    print(f"Taxa de sucesso nos últimos 100 episódios: {final_success_rate:.2f}%")
 
 

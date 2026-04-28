@@ -194,7 +194,7 @@ class Maze(gym.Env):
             reward -= 2.0
 
         # recompensa por explorar
-        reward += 2.0 * (self.info_gain/1000)
+        reward += 2.0 * (self.info_gain/10000)
 
         if action == 0:
             reward -= 1.0
@@ -213,6 +213,9 @@ class Maze(gym.Env):
         if self.steps > MAX_STEPS:
             return True
         return False
+    
+    def reached_goal(self):
+        return np.linalg.norm(self.p - self.alvo) <= self.res
 
     ########################################
     # pega ponto aleatorio no voronoi
