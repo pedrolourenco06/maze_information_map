@@ -532,6 +532,8 @@ class Maze(gym.Env):
         plt.imshow(cmap_data)
         plt.title("Mapa de informação")
         plt.axis("off")
+        explored = self.get_percentage_explored(only_free=True)
+        plt.title(f"Mapa conhecido - Exploração: {explored:.2f}%")
         plt.pause(0.001)
 
 
@@ -561,6 +563,28 @@ class Maze(gym.Env):
 
         pygame.draw.line(surface, color, end, left, width)
         pygame.draw.line(surface, color, end, right, width)
+
+    def get_percentage_explored(self, only_free=True):
+        if only_free:
+            # células navegáveis no mapa real
+            free_cells = self.mapa >= 127
+
+            # células navegáveis que já foram conhecidas pelo robô
+            known_free_cells = (self.known_map != -1) & free_cells
+
+            total_free = np.sum(free_cells)
+
+            if total_free == 0:
+                return 0.0
+
+            return 100.0 * np.sum(known_free_cells) / total_free
+
+        else:
+            # considera o mapa inteiro, incluindo obstáculos
+            known_cells = np.sum(self.known_map != -1)
+            total_cells = self.known_map.size
+
+            return 100.0 * known_cells / total_cells
 
     def save_known_map(self, filename="known_map.npy"):
         np.save(filename, self.known_map)
