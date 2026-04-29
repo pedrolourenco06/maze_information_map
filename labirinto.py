@@ -59,6 +59,11 @@ class TDlearning(object):
         self.eps = parameters['eps']
         self.alpha = parameters['alpha']
 
+        # métricas de exploração
+        self.exploration_points = [25, 50, 75, 100]
+        self.exploration_events = {}
+        self.current_exploration = 0.0
+
         # log file (nome depende do metodo)
         self.logfile = parameters['q-file']
         if self.method == 'Q-learning':
@@ -99,6 +104,25 @@ class TDlearning(object):
     def save(self):
         with open(self.logfile, 'wb') as f:
             np.savez(f, Q=self.Q, episodes=self.episode)
+
+    def check_exploration_points(self):
+        explored = self.env.get_percentage_explored(only_free=True)
+        self.current_exploration = explored
+
+        for points in self.exploration_points:
+            if points not in self.exploration_events and explored >= points:
+                self.exploration_events[points] = {
+                    'episode': self.episode,
+                    'percentage': explored
+                }
+
+                print(
+                    f"Porcentagem de exploração atingido: {points}% "
+                    f"| episódio {self.episode} ",
+                    flush=True
+                )
+
+        return explored
 
     ##########################################
     def __del__(self):
@@ -164,7 +188,7 @@ class TDlearning(TDlearning):
 # %%
 class TDlearning(TDlearning):
     ##########################################
-    def runEpisode(self, render_every=50):
+    def runEpisode(self, render_every=1):
 
         # novo episodio
         self.episode += 1
@@ -174,6 +198,8 @@ class TDlearning(TDlearning):
         
         # inicia o ambiente (começa aleatoriamente)
         S = self.env.reset()
+
+        self.check_exploration_points()
         
         # \pi(s)
         A = self.policy(S)
@@ -194,6 +220,8 @@ class TDlearning(TDlearning):
             # Salva rewards
             rewards.append(R)
 
+            self.check_exploration_points()
+
             # renderiza o ambiente
             if (self.episode-1)%render_every == 0:
                 self.env.render(self.Q)
@@ -205,10 +233,10 @@ class TDlearning(TDlearning):
         # salva a tabela Q
         if self.parameters['save_Q']:
             self.save()
-            mc.env.save_known_map()
+            self.env.save_known_map()
 
         success = self.env.reached_goal()
-        return np.sum(np.array(rewards)), success
+        return np.sum(np.array(rewards)), success, self.current_exploration
 
 
 # %% [markdown]
@@ -250,10 +278,11 @@ if __name__ == '__main__':
     # taxa de sucesso
     successes = []
     success_rate = []
+    exploration_history = []
     
     while mc.episode <= parameters['episodes']:
         # roda um episodio
-        total_reward, success = mc.runEpisode()
+        total_reward, success, percentage_explored = mc.runEpisode()
         
         # rewards
         rewards.append(total_reward)
@@ -261,11 +290,12 @@ if __name__ == '__main__':
         avg_rewards.append(np.mean(rewards[-50:]))
         successes.append(1 if success else 0)
         success_rate.append(np.mean(successes[-50:]))
+        exploration_history.append(percentage_explored)
         
         # plot rewards
         plt.figure(1)
         #clear_output(wait=True)
-        print("\033[H\033[J", end="")
+        #print("\033[H\033[J", end="")
         plt.clf()
         plt.plot(avg_rewards, 'b', linewidth=2)
         plt.plot(rewards, 'r', alpha=0.3)
@@ -294,5 +324,3 @@ if __name__ == '__main__':
 
     final_success_rate = np.mean(successes[-100:]) * 100
     print(f"Taxa de sucesso nos últimos 100 episódios: {final_success_rate:.2f}%")
-
-
