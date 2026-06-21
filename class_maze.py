@@ -11,6 +11,7 @@ except:
 import numpy as np
 from functools import partial
 import pygame
+from pyparsing import col
 
 # Globais
 NACTIONS = 9
@@ -23,7 +24,7 @@ SCREEN_SIZE = 500
 class Maze(gym.Env):
     ########################################
     # construtor
-    def __init__(self, xlim=np.array([0.0, 10.0]), ylim=np.array([0.0, 10.0]), res=0.4, img='labirinto.png', alvo=np.array([9.5, 9.5]), render=False):
+    def __init__(self, xlim=np.array([0.0, 10.0]), ylim=np.array([0.0, 10.0]), res=0.4, img='labirinto.png', alvo=np.array([9.5, 9.5]), render=False, continuous_obs=False, window_layers=5, reset_known_map_each_episode=False):
 
         # salva o tamanho geometrico da imagem em metros
         self.xlim = xlim
@@ -32,11 +33,35 @@ class Maze(gym.Env):
         # resolucao
         self.res = res
 
+        # modo de observacao:
+        # False -> estado discreto para Q-learning/SARSA tabular
+        # True  -> vetor continuo para DQN
+        self.continuous_obs = continuous_obs
+
+        # tamanho da janela local usada na observacao continua
+        # window_layers = 5 -> janela 11x11 ao redor do robo
+        self.window_layers = window_layers
+
+        # se True, reinicia o mapa conhecido a cada episodio
+        self.reset_known_map_each_episode = reset_known_map_each_episode
+
         ns = int(np.max([np.abs(np.diff(self.xlim)), np.abs(np.diff(self.ylim))])/res)
         self.num_states = [ns, ns]
         
         # espaco de atuacao
         self.action_space = spaces.Discrete(NACTIONS)
+
+        # espaco de observacao para DQN
+        # janela local + 7 variaveis continuas:
+        # x_norm, y_norm, dx_goal, dy_goal, dist_goal, steps_norm, info_norm
+        obs_dim = (2 * self.window_layers + 1) ** 2 + 7
+
+        self.observation_space = spaces.Box(
+            low=-1.0,
+            high=1.0,
+            shape=(obs_dim,),
+            dtype=np.float32
+        )
 
         # converte estados continuos em discretos
         lower_bounds = [self.xlim[0], self.ylim[0]]
@@ -109,67 +134,82 @@ class Maze(gym.Env):
     ########################################
     def reset(self):
 
-        # numero de passos
         self.steps = 0
 
-        # posicao aleatória
         self.p = self.getRand()
-        
-        # trajetoria
+
         self.traj = [self.p]
 
-        self.known_map = -np.ones_like(self.mapa, dtype=np.int8)
+        if self.reset_known_map_each_episode:
+            self.known_map = -np.ones_like(self.mapa, dtype=np.int8)
+
+        self.info_gain = 0
 
         self.update_known_map(layers=2)
+
+        if self.continuous_obs:
+            return self.get_observation()
 
         return self.get_state(self.p)
 
     ########################################
     # converte acão para direção
     def actionU(self, action):
-        
+
+        action = int(action)
+
         # action 0 faz ficar parado
         if action == 0:
             r = 0.0
         else:
             r = self.res
-        
+
         action -= 1
-        th = np.linspace(0.0, 2.0*np.pi, NACTIONS)[:-1]
-        
-        return r*np.array([np.cos(th[action]), np.sin(th[action])])
+        th = np.linspace(0.0, 2.0 * np.pi, NACTIONS)[:-1]
+
+        return r * np.array([np.cos(th[action]), np.sin(th[action])])
         
     ########################################
     # step -> new_observation, reward, done, info = env.step(action)
     def step(self, action):
 
+        action = int(action)
+
         # novo passo
         self.steps += 1
-        
+
         # seleciona acao
         u = self.actionU(action)
 
         # proximo estado
         nextp = self.p + u
 
-        # fora dos limites (norte, sul, leste, oeste)
-        if ( (self.xlim[0] <= nextp[0] <= self.xlim[1]) and (self.ylim[0] <= nextp[1] <= self.ylim[1]) ):
+        # verifica limites do ambiente
+        if ((self.xlim[0] <= nextp[0] <= self.xlim[1]) and
+            (self.ylim[0] <= nextp[1] <= self.ylim[1])):
             self.p = nextp
-            
+
         # trajetoria
         self.traj.append(self.p)
 
         # atualiza mapa conhecido
         self.update_known_map(layers=2)
-         
+
         # reward
         reward = self.getReward(action)
-        
+
         # estado terminal?
         done = self.terminal()
 
-        # retorna
-        return self.get_state(self.p), reward, done, {}
+        # DQN: retorna vetor continuo
+        if self.continuous_obs:
+            obs = self.get_observation()
+
+        # Q-learning/SARSA: retorna estado discreto
+        else:
+            obs = self.get_state(self.p)
+
+        return obs, reward, done, {}
 
     ########################################
     # função de reforço
@@ -299,7 +339,11 @@ class Maze(gym.Env):
     
     def get_robot_cell(self):
         px, py = self.mts2px(self.p)
-        return int(py), int(px)
+        lin = max(0, min(int(py), self.nrow - 1))
+        col = max(0, min(int(px), self.ncol - 1))
+
+        return lin, col
+        
     
     def update_known_map(self, layers=2):
         
@@ -329,11 +373,88 @@ class Maze(gym.Env):
                         self.known_map[i, j] = 1    # obstaculo
 
                     else:
-                        self.known_map[i, j] = 0    # objetivo
+                        self.known_map[i, j] = 0    # livre
 
         curr_known = np.sum(self.known_map != -1)
 
         self.info_gain = curr_known - prev_known
+
+    def get_known_value_at_world(self, q):
+
+        px, py = self.mts2px(q)
+
+        lin = int(py)
+        col = int(px)
+
+        if lin < 0 or lin >= self.nrow or col < 0 or col >= self.ncol:
+            return 1.0  # fora do mapa tratado como obstaculo
+
+        value = self.known_map[lin, col]
+
+        if value == -1:
+            return -1.0  # desconhecido
+        if value == 0:
+            return 0.0   # livre
+        if value == 1:
+            return 1.0   # obstaculo
+        if value == 2:
+            return 0.5   # alvo
+
+        return -1.0
+    
+    def get_observation(self):
+
+        obs = []
+
+        # =========================
+        # 1) Janela local do mapa conhecido
+        # =========================
+        for dy in range(self.window_layers, -self.window_layers - 1, -1):
+            for dx in range(-self.window_layers, self.window_layers + 1):
+
+                q = np.array([
+                    self.p[0] + dx * self.res,
+                    self.p[1] + dy * self.res
+                ])
+
+                obs.append(self.get_known_value_at_world(q))
+
+        # =========================
+        # 2) Posicao continua normalizada do robo
+        # =========================
+        x_norm = 2.0 * (self.p[0] - self.xlim[0]) / (self.xlim[1] - self.xlim[0]) - 1.0
+        y_norm = 2.0 * (self.p[1] - self.ylim[0]) / (self.ylim[1] - self.ylim[0]) - 1.0
+
+        # =========================
+        # 3) Posicao relativa do alvo
+        # =========================
+        dx_goal = (self.alvo[0] - self.p[0]) / (self.xlim[1] - self.xlim[0])
+        dy_goal = (self.alvo[1] - self.p[1]) / (self.ylim[1] - self.ylim[0])
+
+        max_dist = np.linalg.norm([
+            self.xlim[1] - self.xlim[0],
+            self.ylim[1] - self.ylim[0]
+        ])
+
+        dist_goal = np.linalg.norm(self.alvo - self.p) / max_dist
+
+        # =========================
+        # 4) Passo e ganho de informacao
+        # =========================
+        steps_norm = np.clip(self.steps / MAX_STEPS, 0.0, 1.0)
+        info_norm = np.clip(self.info_gain / 10000.0, -1.0, 1.0)
+
+        obs.extend([
+            x_norm,
+            y_norm,
+            dx_goal,
+            dy_goal,
+            dist_goal,
+            steps_norm,
+            info_norm
+        ])
+
+        return np.array(obs, dtype=np.float32)
         
     ########################################
     # desenha a imagem distorcida em metros
@@ -399,7 +520,7 @@ class Maze(gym.Env):
     #     pygame.display.flip()
     #     self.clock.tick(30)  # FPS
 
-    def render(self, Q, arrow_size=0.5, target_size=5, robot_size=10):
+    def render(self, Q=none, arrow_size=0.5, target_size=5, robot_size=10):
 
         if not self.render_env:
             return
@@ -435,22 +556,23 @@ class Maze(gym.Env):
         pygame.draw.rect(self.screen, (0, 0, 255), (rx, ry, robot_size, robot_size))
 
         # setas APENAS no mapa real
-        m = self.num_states[0]
-        xm = np.linspace(self.xlim[0], self.xlim[1], m)
-        ym = np.linspace(self.ylim[0], self.ylim[1], m)
+        if Q is not None:
+            m = self.num_states[0]
+            xm = np.linspace(self.xlim[0], self.xlim[1], m)
+            ym = np.linspace(self.ylim[0], self.ylim[1], m)
 
-        for x in xm:
-            for y in ym:
-                if self.collision((x, y)):
-                    continue
+            for x in xm:
+                for y in ym:
+                    if self.collision((x, y)):
+                        continue
 
-                S = self.get_state(np.array([x, y]))
-                u = arrow_size * self.actionU(Q[S, :].argmax())
-                start = self.world_to_screen([x, y])
-                end = self.world_to_screen([x + u[0], y + u[1]])
+                    S = self.get_state(np.array([x, y]))
+                    u = arrow_size * self.actionU(Q[S, :].argmax())
+                    start = self.world_to_screen([x, y])
+                    end = self.world_to_screen([x + u[0], y + u[1]])
 
-                if np.linalg.norm(u) > 0:
-                    self.draw_arrow(self.screen, (0, 100, 150), start, end)
+                    if np.linalg.norm(u) > 0:
+                        self.draw_arrow(self.screen, (0, 100, 150), start, end)
 
         # =========================
         # 2) MAPA CONHECIDO (DIREITA)
@@ -562,5 +684,10 @@ class Maze(gym.Env):
         pygame.draw.line(surface, color, end, right, width)
 
     ########################################
+
+    def close(self):
+        if self.render_env:
+            pygame.quit()
+
     def __del__(self):
-        None
+        self.close()
