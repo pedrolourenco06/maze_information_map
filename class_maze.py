@@ -520,7 +520,7 @@ class Maze(gym.Env):
     #     pygame.display.flip()
     #     self.clock.tick(30)  # FPS
 
-    def render(self, Q=none, arrow_size=0.5, target_size=5, robot_size=10):
+    def render(self, Q=None, arrow_size=0.5, target_size=5, robot_size=10):
 
         if not self.render_env:
             return
@@ -682,6 +682,69 @@ class Maze(gym.Env):
 
         pygame.draw.line(surface, color, end, left, width)
         pygame.draw.line(surface, color, end, right, width)
+
+    def get_percentage_explored(self, only_free=True):
+        if only_free:
+            # células livres no mapa real
+            free_cells = self.mapa >= 127
+
+            # células livres que já foram conhecidas pelo robô
+            known_free_cells = (self.known_map != -1) & free_cells
+
+            total_free = np.sum(free_cells)
+
+            if total_free == 0:
+                return 0.0
+
+            return 100.0 * np.sum(known_free_cells) / total_free
+
+        else:
+            # considera o mapa inteiro, incluindo obstáculos
+            known_cells = np.sum(self.known_map != -1)
+            total_cells = self.known_map.size
+
+            return 100.0 * known_cells / total_cells    
+
+    def save_known_map_image(self, filename="results/known_map.png"):
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import os
+
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+
+        vis = np.copy(self.known_map)
+
+        for p in self.traj:
+            px, py = self.mts2px(p)
+            lin = max(0, min(int(py), self.nrow - 1))
+            col = max(0, min(int(px), self.ncol - 1))
+            vis[lin, col] = 3
+
+        px, py = self.mts2px(self.p)
+        lin = max(0, min(int(py), self.nrow - 1))
+        col = max(0, min(int(px), self.ncol - 1))
+        vis[lin, col] = 4
+
+        px, py = self.mts2px(self.alvo)
+        lin = max(0, min(int(py), self.nrow - 1))
+        col = max(0, min(int(px), self.ncol - 1))
+        vis[lin, col] = 2
+
+        img = np.zeros((vis.shape[0], vis.shape[1], 3), dtype=np.uint8)
+        img[vis == -1] = [60, 60, 60]       # desconhecido
+        img[vis == 0]  = [255, 255, 255]    # livre
+        img[vis == 1]  = [0, 0, 0]          # obstáculo
+        img[vis == 2]  = [0, 255, 0]        # alvo
+        img[vis == 3]  = [180, 0, 255]      # trajetória
+        img[vis == 4]  = [0, 0, 255]        # robô
+
+        plt.figure()
+        plt.imshow(img)
+        explored = self.get_percentage_explored(only_free=True)
+        plt.title(f"Mapa de informação - Exploração: {explored:.2f}%")
+        plt.axis("off")
+        plt.savefig(filename, dpi=300, bbox_inches="tight")
+        plt.close()
 
     ########################################
 
