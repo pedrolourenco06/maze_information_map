@@ -107,7 +107,13 @@ class DQNAgent:
         self.gamma = gamma
 
         if device is None:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            try:
+                import torch_directml
+                self.device = torch_directml.device()
+                print("Usando GPU AMD via DirectML")
+            except ImportError:
+                self.device = torch.device("cpu")
+                print("torch-directml não encontrado. Usando CPU.")
         else:
             self.device = device
 
@@ -244,7 +250,7 @@ if __name__ == "__main__":
     # -------------------------
     # Hiperparametros
     # -------------------------
-    episodes = 5000
+    episodes = 3000
 
     gamma = 0.99
     lr = 1e-3
@@ -264,7 +270,7 @@ if __name__ == "__main__":
     eps_decay = 0.995
 
     # Renderizacao
-    render = False
+    render = True
     render_every = 100
 
     # -------------------------

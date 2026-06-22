@@ -24,7 +24,7 @@ SCREEN_SIZE = 500
 class Maze(gym.Env):
     ########################################
     # construtor
-    def __init__(self, xlim=np.array([0.0, 10.0]), ylim=np.array([0.0, 10.0]), res=0.4, img='labirinto.png', alvo=np.array([9.5, 9.5]), render=False, continuous_obs=False, window_layers=5, reset_known_map_each_episode=False):
+    def __init__(self, xlim=np.array([0.0, 10.0]), ylim=np.array([0.0, 10.0]), res=0.4, img='labirinto2.png', alvo=np.array([5.0, 8.2]), render=False, continuous_obs=False, window_layers=5, reset_known_map_each_episode=False):
 
         # salva o tamanho geometrico da imagem em metros
         self.xlim = xlim
