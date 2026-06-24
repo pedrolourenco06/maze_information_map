@@ -1,16 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Treinamento DQN para o ambiente Maze.
-
-Este arquivo deve ser usado com o class_maze.py adaptado para aceitar:
-    Maze(continuous_obs=True)
-
-Acoes:
-    Permanecem discretas: 9 acoes.
-Estados/observacoes:
-    Passam a ser vetores continuos retornados por env.get_observation().
-"""
-
 import os
 import random
 from collections import deque
@@ -26,18 +13,12 @@ import torch.optim as optim
 import class_maze as cm
 
 
-# =========================
-# REPRODUTIBILIDADE
-# =========================
 SEED = 42
 random.seed(SEED)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
 
 
-# =========================
-# REDE Q
-# =========================
 class QNetwork(nn.Module):
     def __init__(self, input_dim, num_actions):
         super().__init__()
@@ -55,10 +36,6 @@ class QNetwork(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-
-# =========================
-# REPLAY BUFFER
-# =========================
 class ReplayBuffer:
     def __init__(self, capacity):
         self.buffer = deque(maxlen=capacity)
@@ -88,10 +65,6 @@ class ReplayBuffer:
     def __len__(self):
         return len(self.buffer)
 
-
-# =========================
-# AGENTE DQN
-# =========================
 class DQNAgent:
     def __init__(
         self,
@@ -184,9 +157,6 @@ class DQNAgent:
         }, filename)
 
 
-# =========================
-# FUNCOES AUXILIARES
-# =========================
 def moving_average(values, window=50):
     if len(values) == 0:
         return []
@@ -240,17 +210,11 @@ def save_training_plots(rewards, success_rate, losses, output_dir):
         plt.savefig(os.path.join(output_dir, "dqn_loss.png"), dpi=300, bbox_inches="tight")
 
 
-# =========================
-# TREINAMENTO
-# =========================
 if __name__ == "__main__":
 
     os.makedirs("results", exist_ok=True)
 
-    # -------------------------
-    # Hiperparametros
-    # -------------------------
-    episodes = 3000
+    episodes = 5000
 
     gamma = 0.99
     lr = 1e-3
@@ -258,7 +222,7 @@ if __name__ == "__main__":
     batch_size = 64
     buffer_size = 100000
 
-    # Atualiza a target network a cada N passos de ambiente
+    # Atualiza a rede alvo a cada N passos de ambiente
     target_update_steps = 500
 
     # Treinar a rede a cada N passos
@@ -273,9 +237,6 @@ if __name__ == "__main__":
     render = True
     render_every = 100
 
-    # -------------------------
-    # Ambiente
-    # -------------------------
     env = cm.Maze(
         render=render,
         continuous_obs=True,
@@ -302,9 +263,6 @@ if __name__ == "__main__":
 
     print(f"Dispositivo usado: {agent.device}")
 
-    # -------------------------
-    # Historicos
-    # -------------------------
     rewards_history = []
     successes = []
     success_rate = []
@@ -313,9 +271,6 @@ if __name__ == "__main__":
     eps = eps_start
     global_step = 0
 
-    # -------------------------
-    # Loop principal
-    # -------------------------
     for episode in range(1, episodes + 1):
 
         state = env.reset()
@@ -340,9 +295,6 @@ if __name__ == "__main__":
             state = next_state
             total_reward += reward
 
-            # if render and episode % render_every == 0:
-            #     env.render(Q=None)
-            #     env.render_known_map()
             
             if episode % render_every == 0:
                 env.render_known_map()
@@ -373,9 +325,7 @@ if __name__ == "__main__":
         if episode % 100 == 0:
             env.save_known_map_image(f"results/known_map_ep_{episode}.png")
 
-    # -------------------------
-    # Salvar resultados
-    # -------------------------
+
     agent.save("results/dqn_model.pt")
     save_training_plots(rewards_history, success_rate, loss_history, "results")
 
